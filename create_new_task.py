@@ -10,13 +10,13 @@ def create_new_task():
         task_name = input("请输入任务名称: ").strip()
         resp_person = input("请输入负责人: ").strip()
         target_date = input("请输入目标完成日期 (YYYY-MM-DD): ").strip()
-        priority = input("请输入优先级 (高/中/低): ").strip()  # 新增优先级输入
+        priority = input("请输入优先级 ('High', 'Medium', 'Low'): ").strip()  # 新增优先级输入
 
         # 基础验证
         if not all([task_name, resp_person, target_date, priority]):
             raise ValueError("所有必填字段不能为空")
-        if priority not in ['高', '中', '低']:
-            raise ValueError("优先级必须是 '高', '中', '低' 中的一个")
+        if priority not in ['High', 'Medium', 'Low']:
+            raise ValueError("优先级必须是 'High', 'Medium', 'Low'中的一个")
 
         with DatabaseManager() as cursor:
             sql = """

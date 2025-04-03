@@ -227,9 +227,3 @@ def query_data():
                 print(f"性别: {row['gender']}, 人数: {row['total']}, 占比: {row['percentage']}%")
     except Exception as e:
         print(f"查询异常: {e}")
-
-
-
-
-
-
