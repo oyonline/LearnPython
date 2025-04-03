@@ -8,19 +8,58 @@ current_user = "admin001"  # 实际应从会话获取
 client_ip = "192.168.1.100"  # 实际应从请求上下文获取
 device_information = "Python"
 
+# ---------------- 通用输入验证函数
+def get_valid_input(prompt: str, expected_type: type,
+                    min_val=None, max_val=None,
+                    max_retry: int = 3) -> any:
+    """
+    带验证的通用输入函数
+    :param prompt: 输入提示语
+    :param expected_type: 期望的数据类型（int/str等）
+    :param min_val: 最小值（仅数值类型有效）
+    :param max_val: 最大值（仅数值类型有效）
+    :param max_retry: 最大重试次数
+    :return: 验证通过的值
+    """
+    for attempt in range(1, max_retry + 1):
+        try:
+            value = input(prompt)
 
+            # 空值检查
+            if not value.strip():
+                raise ValueError("输入不能为空")
+
+            # 类型转换
+            converted_value = expected_type(value)
+
+            # 数值范围检查
+            if issubclass(expected_type, (int, float)):
+                if min_val is not None and converted_value < min_val:
+                    raise ValueError(f"值不能小于 {min_val}")
+                if max_val is not None and converted_value > max_val:
+                    raise ValueError(f"值不能超过 {max_val}")
+
+            return converted_value
+
+        except ValueError as e:
+            print(f"输入错误: {str(e)}")
+            if attempt == max_retry:
+                raise ValueError(f"超过最大重试次数（{max_retry}次）")
+            print(f"请重新输入（剩余尝试次数：{max_retry - attempt}）")
 
 
 #-------------增
 def insert_employee_data():
-    # 用户输入数据（示例）
-    id = int(input("请输入员工ID: "))
-    name = input("请输入员工姓名: ")
-    money = int(input("请输入员工月薪: "))
 
-    conn = None
     try:
         with DatabaseManager() as cursor:
+
+            # 带验证的输入
+            id = get_valid_input("请输入员工ID: ", int, min_val=1)
+            name = get_valid_input("请输入员工姓名: ", str).strip()
+            money = get_valid_input("请输入月薪（元）: ", int, min_val=0)
+
+
             # 使用三引号规范SQL格式（保持缩进对齐）
             sql = """
                 INSERT INTO account 
@@ -69,10 +108,10 @@ def insert_employee_data():
 #-------------删  改进版带输入提示的版本
 def delete_account_by_id():
     try:
-        target_id = int(input("请输入要删除的ID: "))
+        target_id = get_valid_input("请输入要删除的ID: ", int, min_val=1)
 
         with DatabaseManager() as cursor:
-            sql = "DELETE FROM account WHERE id = %s"
+            sql = "DELETE FROM account WHERE id = %s AND is_deletable = 1"  # 防止误删核心数据
             cursor.execute(sql, (target_id,))
             print(f"成功删除 {cursor.rowcount} 条记录")
 
@@ -110,13 +149,13 @@ def delete_account_by_id():
         print(f"删除异常: {error_msg}")
 
 
-#-------------改
+#-------------改 - 更新
 def update_account_balance():
     try:
         # 获取用户输入
-        target_id = int(input("请输入要修改的员工ID: "))
-        new_name = input("请输入新的名字: ")
-        new_balance = int(input("请输入新的薪资数额: "))
+        target_id = get_valid_input("输入要修改的员工ID ", int, min_val=1)
+        new_name = get_valid_input("请输入新的名字: ", str).strip()
+        new_balance = get_valid_input("请输入新的薪资数额: ", int, min_val=0)
 
         with DatabaseManager() as cursor:
             sql = """
