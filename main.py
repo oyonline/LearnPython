@@ -11,7 +11,7 @@ import update_task
 
 
 #执行更新操作
-configtest.update_account_balance()
+#configtest.update_account_balance()
 
 
 # 执行删除函数
@@ -20,3 +20,4 @@ configtest.update_account_balance()
 
 #create_new_task.create_new_task()
 #update_task.update_task()
+print("99999")
