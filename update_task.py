@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from db_utils import DatabaseManager
+from db_utils_old import DatabaseManager
 from log_creator import log_system_action
 
 def update_task():
