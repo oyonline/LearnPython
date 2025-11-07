@@ -272,3 +272,296 @@ class DBHelper:
         except Exception as e:
             self.conn.rollback()
             raise Exception(f"UPSERT stores 失败：{e}")
+
+    # 在 db_utils.py 的 DBHelper 类中追加
+
+    def create_inventory_fba_current_table(self):
+        ddl = """
+              CREATE TABLE IF NOT EXISTS inventory_fba_current \
+              ( \
+                  id \
+                  BIGINT \
+                  AUTO_INCREMENT \
+                  PRIMARY \
+                  KEY, \
+                  source_system \
+                  VARCHAR \
+              ( \
+                  32 \
+              ) NOT NULL,
+                  platform VARCHAR \
+              ( \
+                  32 \
+              ) NOT NULL,
+                  sid INT NOT NULL,
+                  seller_sku VARCHAR \
+              ( \
+                  128 \
+              ) NOT NULL,
+                  sku VARCHAR \
+              ( \
+                  128 \
+              ) NULL,
+                  asin VARCHAR \
+              ( \
+                  32 \
+              ) NULL,
+                  warehouse_name VARCHAR \
+              ( \
+                  255 \
+              ) NOT NULL,
+                  fulfillment_channel VARCHAR \
+              ( \
+                  32 \
+              ) NOT NULL,
+                  share_type TINYINT NOT NULL DEFAULT 0,
+
+                  total DECIMAL \
+              ( \
+                  18, \
+                  2 \
+              ) NOT NULL DEFAULT 0,
+                  available_total DECIMAL \
+              ( \
+                  18, \
+                  2 \
+              ) NOT NULL DEFAULT 0,
+
+                  reserved_fc_transfers DECIMAL \
+              ( \
+                  18, \
+                  2 \
+              ) NOT NULL DEFAULT 0,
+                  reserved_fc_processing DECIMAL \
+              ( \
+                  18, \
+                  2 \
+              ) NOT NULL DEFAULT 0,
+                  reserved_customerorders DECIMAL \
+              ( \
+                  18, \
+                  2 \
+              ) NOT NULL DEFAULT 0,
+                  reserved_total DECIMAL \
+              ( \
+                  18, \
+                  2 \
+              ) NOT NULL DEFAULT 0,
+
+                  afn_unsellable_quantity DECIMAL \
+              ( \
+                  18, \
+                  2 \
+              ) NOT NULL DEFAULT 0,
+
+                  afn_inbound_working_quantity DECIMAL \
+              ( \
+                  18, \
+                  2 \
+              ) NOT NULL DEFAULT 0,
+                  afn_inbound_shipped_quantity DECIMAL \
+              ( \
+                  18, \
+                  2 \
+              ) NOT NULL DEFAULT 0,
+                  afn_inbound_receiving_quantity DECIMAL \
+              ( \
+                  18, \
+                  2 \
+              ) NOT NULL DEFAULT 0,
+                  stock_up_num DECIMAL \
+              ( \
+                  18, \
+                  2 \
+              ) NOT NULL DEFAULT 0,
+                  inbound_total DECIMAL \
+              ( \
+                  18, \
+                  2 \
+              ) NOT NULL DEFAULT 0,
+
+                  pulled_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, \
+                  UNIQUE KEY uk_src_sid_sku_chan \
+              ( \
+                  source_system, \
+                  sid, \
+                  seller_sku, \
+                  fulfillment_channel \
+              ),
+                  KEY idx_sid \
+              ( \
+                  sid \
+              ),
+                  KEY idx_seller_sku \
+              ( \
+                  seller_sku \
+              ),
+                  KEY idx_channel \
+              ( \
+                  fulfillment_channel \
+              )
+                  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='FBA 当前库存（覆盖式）'; \
+              """
+        self.cursor.execute(ddl)
+        self.conn.commit()
+        print("✅ inventory_fba_current 表已存在（或已创建）。")
+
+    def upsert_inventory_fba_current_from_api(self, rows, source_system="LINGXING", platform="AMAZON", chunk_size=500):
+        """
+        幂等写入 FBA 最新库存：
+        - 唯一键：(source_system, sid, seller_sku, fulfillment_channel)
+        - 共享仓：若 share_type in (1,2) 且有 fba_storage_quantity_list，则按子项展开
+        """
+
+        def _s(v, lower=False):
+            if v is None: return ""
+            s = str(v).strip()
+            return s.lower() if lower else s
+
+        def _f(v):  # 数值转 float
+            try:
+                return float(v)
+            except Exception:
+                return 0.0
+
+        def _i(v):
+            try:
+                return int(v)
+            except Exception:
+                return 0
+
+        sql = """
+              INSERT INTO inventory_fba_current (source_system, platform, sid, seller_sku, sku, asin, \
+                                                 warehouse_name, fulfillment_channel, share_type, \
+                                                 total, available_total, \
+                                                 reserved_fc_transfers, reserved_fc_processing, reserved_customerorders, \
+                                                 reserved_total, \
+                                                 afn_unsellable_quantity, \
+                                                 afn_inbound_working_quantity, afn_inbound_shipped_quantity, \
+                                                 afn_inbound_receiving_quantity, stock_up_num, inbound_total, \
+                                                 pulled_at) \
+              VALUES (%s, %s, %s, %s, %s, %s, \
+                      %s, %s, %s, \
+                      %s, %s, \
+                      %s, %s, %s, %s, \
+                      %s, \
+                      %s, %s, %s, %s, %s, \
+                      NOW()) ON DUPLICATE KEY \
+              UPDATE \
+                  warehouse_name = \
+              VALUES (warehouse_name), sku = \
+              VALUES (sku), asin = \
+              VALUES (asin), share_type = \
+              VALUES (share_type), total = \
+              VALUES (total), available_total = \
+              VALUES (available_total), reserved_fc_transfers = \
+              VALUES (reserved_fc_transfers), reserved_fc_processing = \
+              VALUES (reserved_fc_processing), reserved_customerorders = \
+              VALUES (reserved_customerorders), reserved_total = \
+              VALUES (reserved_total), afn_unsellable_quantity = \
+              VALUES (afn_unsellable_quantity), afn_inbound_working_quantity = \
+              VALUES (afn_inbound_working_quantity), afn_inbound_shipped_quantity = \
+              VALUES (afn_inbound_shipped_quantity), afn_inbound_receiving_quantity = \
+              VALUES (afn_inbound_receiving_quantity), stock_up_num = \
+              VALUES (stock_up_num), inbound_total = \
+              VALUES (inbound_total), pulled_at = NOW(), updated_at = NOW(); \
+              """
+
+        params = []
+
+        for r in rows:
+            seller_sku = r.get("seller_sku")
+            if not seller_sku:
+                continue
+
+            share_type = _i(r.get("share_type"))
+            fc = _s(r.get("fulfillment_channel"), True)
+            sku = _s(r.get("sku"), True) or None
+            asin = _s(r.get("asin"), True) or None
+            wh_name = _s(r.get("name"))
+
+            # 共有数值
+            total = _f(r.get("total"))
+            available_total = _f(r.get("available_total"))
+            reserved_fc_transfers = _f(r.get("reserved_fc_transfers"))
+            reserved_fc_processing = _f(r.get("reserved_fc_processing"))
+            reserved_customerorders = _f(r.get("reserved_customerorders"))
+            reserved_total = reserved_fc_transfers + reserved_fc_processing + reserved_customerorders
+
+            unsellable = _f(r.get("afn_unsellable_quantity"))
+
+            in_working = _f(r.get("afn_inbound_working_quantity"))
+            in_shipped = _f(r.get("afn_inbound_shipped_quantity"))
+            in_receiving = _f(r.get("afn_inbound_receiving_quantity"))
+            stock_up = _f(r.get("stock_up_num"))
+            inbound_total = in_working + in_shipped + in_receiving + stock_up
+
+            # 共享仓子项展开
+            sub_list = r.get("fba_storage_quantity_list") or []
+            if share_type in (1, 2) and sub_list:
+                # 父项通常 sid=0，这里跳过父项
+                for sub in sub_list:
+                    sid = _i(sub.get("sid"))
+                    if not sid:
+                        continue
+                    sub_wh_name = _s(sub.get("name")) or wh_name
+                    q_local = _f(sub.get("quantity_for_local_fulfillment"))
+
+                    params.append((
+                        _s(source_system, True),
+                        _s(platform, True),
+                        sid,
+                        _s(seller_sku, True),
+                        sku,
+                        asin,
+                        sub_wh_name,
+                        fc or "amazon_eu",
+                        share_type,
+                        q_local,  # total：对子项未知，取本地可售近似
+                        q_local,  # available_total：子项可售
+                        0, 0, 0, 0,  # reserved_* 置 0（无法拆分）
+                        0,  # 不可售置 0
+                        0, 0, 0, 0, 0  # 入库相关置 0（无法拆分）
+                    ))
+            else:
+                # 普通仓或没有子项
+                sid = _i(r.get("sid"))
+                if not sid:
+                    continue
+                params.append((
+                    _s(source_system, True),
+                    _s(platform, True),
+                    sid,
+                    _s(seller_sku, True),
+                    sku,
+                    asin,
+                    wh_name,
+                    fc or "amazon_na",
+                    share_type,
+                    total,
+                    available_total,
+                    reserved_fc_transfers,
+                    reserved_fc_processing,
+                    reserved_customerorders,
+                    reserved_total,
+                    unsellable,
+                    in_working,
+                    in_shipped,
+                    in_receiving,
+                    stock_up,
+                    inbound_total
+                ))
+
+        if not params:
+            print("没有可写入的库存数据。")
+            return 0
+
+        total_affected = 0
+        for i in range(0, len(params), chunk_size):
+            batch = params[i:i + chunk_size]
+            self.cursor.executemany(sql, batch)
+            total_affected += self.cursor.rowcount
+        self.conn.commit()
+        print(f"✅ 库存 UPSERT 完成（受影响行数={total_affected}）。")
+        return total_affected

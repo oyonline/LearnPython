@@ -62,8 +62,8 @@ def main():
         )
         print(f"✅ stores UPSERT 受影响行数 = {affected}")
 
-        success_count = affected
-        note = f"affected={affected}; shops={len(shop_list)}"
+        success_count = len(shop_list)
+        note = f"shops={len(shop_list)}; affected={affected}"
         print("\n✅ ODS + DIM 两条支线完成！")
 
     except Exception as e:
